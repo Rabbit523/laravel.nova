@@ -1,0 +1,39 @@
+:root {
+    --transparent: transparent;
+    --black: #22292f;
+    --white: white;
+    --white-50: rgba(255, 255, 255, 0.5);
+    --danger: #c45454;
+    --success: #47b374;
+    --warning: #ffea61;
+    --info: #C5CAE9;
+    --primary: #3F51B5;
+    --primary-dark: #303F9F;
+    --primary-70: rgba(58, 92, 136, 0.7);
+    --primary-50: rgba(58, 92, 136, 0.5);
+    --primary-30: rgba(58, 92, 136, 0.3);
+    --primary-10: rgba(58, 92, 136, 0.1);
+    --logo: ;
+    --sidebar-icon: #d1dae6;
+    --20: #f6fbff;
+    --30: #f4f7fa;
+    --40: #eef1f4;
+    --50: #e3e7eb;
+    --60: #bacad6;
+    --70: #b3b9bf;
+    --80: #7c858e;
+    --90: #252d37;
+    --90-half: rgba(40, 54, 61, 0.5);
+}
+
+.bg-grad-sidebar {
+    background-image: -webkit-gradient(
+        linear,
+        left bottom,
+        left top,
+        from(#3F51B5),
+        to(#303F9F)
+    );
+
+    background-image: linear-gradient(0deg, #3F51B5, #303F9F);
+}

@@ -1,0 +1,112 @@
+branches:
+  - develop
+  - master
+pipeline:
+  restore-cache:
+    image: drillster/drone-volume-cache
+    restore: true
+    mount:
+      - ./vendor
+    # Mount the cache volume, needs "Trusted"
+    volumes:
+      - /tmp/cache:/cache
+    cache_key: [ DRONE_REPO_OWNER, DRONE_REPO_NAME, DRONE_BRANCH, DRONE_JOB_NUMBER ]
+
+  get-dependencies:
+    image: kinchaku/php
+    commands:
+      - composer install --optimize-autoloader --no-dev --ignore-platform-reqs
+
+  update-cache:
+    image: drillster/drone-volume-cache
+    rebuild: true
+    mount:
+      - ./vendor
+    cache_key: [ DRONE_REPO_OWNER, DRONE_REPO_NAME, DRONE_BRANCH, DRONE_JOB_NUMBER ]
+    volumes:
+      - /tmp/cache:/cache
+
+  build_dev:
+    when:
+      branch: develop
+    image: kinchaku/php
+    network_mode: host
+    secrets: [ db_username, db_password ]
+    commands:
+      - php artisan migrate --force
+      - php artisan nova:publish
+
+  deploy_dev:
+    when:
+      branch: develop
+    image: alpine
+    volumes:
+      - /var/www/dev/backend:/var/www/dev/backend
+    commands:
+      - apk add -U rsync
+      - cp /var/www/dev/backend/.env .
+      - rm -rf /var/www/dev/backend/*
+      - rsync -r --exclude='/.git' . /var/www/dev/backend
+      - ln -s /var/www/dev/backend/nova/ /var/www/dev/backend/vendor/laravel/nova
+      - chmod -R a+w /var/www/dev/backend/storage
+
+  deploy:
+    when:
+      branch: master
+    image: drillster/drone-rsync
+    hosts: [ "app.kinchaku.com" ]
+    network_mode: host
+    user: root
+    port: 6534
+    source: .
+    target: /var/www/backend_new
+    recursive: true
+    delete: true
+    secrets: [ rsync_key ]
+    environment:
+      - DB_PASSWORD=$${db_password_prod}
+      - DB_USERNAME=kinchaku
+      - COMPOSER_ALLOW_SUPERUSER=1
+    script:
+      - mv /var/www/backend_new /var/www/backend_${DRONE_COMMIT_SHA}
+      - cd /var/www/backend_${DRONE_COMMIT_SHA}
+      - composer install --optimize-autoloader --no-dev
+      - ln -s /var/www/.backend /var/www/backend_${DRONE_COMMIT_SHA}/.env
+      - php artisan migrate --force
+      - php artisan route:cache
+      - chown -R www-data:www-data /var/www/backend_${DRONE_COMMIT_SHA}/storage
+      - ln -s -n -f -T /var/www/backend_${DRONE_COMMIT_SHA} /var/www/backend
+      - mkdir -p /var/www/backend/storage/app/analytics/
+      - ln -s /var/www/service-account-credentials.json /var/www/backend/storage/app/analytics/service-account-credentials.json
+      - cd /var/www/backend
+      - php artisan nova:publish
+      - ln -s /var/www/backend/nova/ /var/www/backend/vendor/laravel/nova
+      - service php7.2-fpm reload
+      - php artisan horizon:terminate
+
+  rollbar_f:
+    image: alpine
+    when:
+      status: [ failure ]
+    secrets: [ access_token ]
+    commands:
+      - apk add -U curl
+      - echo "$${DRONE_TAG}"
+      - curl https://api.rollbar.com/api/1/deploy/ -F access_token=$${ACCESS_TOKEN} -F environment=${DRONE_COMMIT_BRANCH/master/prod} -F revision=${DRONE_COMMIT_SHA} -F local_username=${DRONE_COMMIT_AUTHOR} -F status=$${DRONE_BUILD_STATUS/failure/failed}
+
+  rollbar_s:
+    image: alpine
+    when:
+      status: [ success ]
+    secrets: [ access_token ]
+    commands:
+      - apk add -U curl
+      - echo "$${DRONE_TAG}"
+      - curl https://api.rollbar.com/api/1/deploy/ -F access_token=$${ACCESS_TOKEN} -F environment=${DRONE_COMMIT_BRANCH/master/prod} -F revision=${DRONE_COMMIT_SHA} -F local_username=${DRONE_COMMIT_AUTHOR}
+
+  notify:
+    image: plugins/slack
+    channel: git
+    secrets: [slack_webhook]
+    when:
+      status: [ success, failure ]
